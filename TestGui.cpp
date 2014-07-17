@@ -3,28 +3,15 @@
 #include <QPushButton>
 #include <QHBoxLayout>
 #include <QFileDialog>
+#include <QDebug>
 #include <QThread>
 
 #include "TestCore.h"
 #include "LogicalGui.h"
 
-class GetFileNameWatcher : public AbstractWatcher
-{
-public:
-	QVariant call(const QVariantList &arguments) override
-	{
-		return QFileDialog::getOpenFileName(
-					arguments[0].value<QWidget *>(),
-				arguments[1].toString(),
-				arguments[2].value<QDir>().absolutePath());
-	}
-};
-
 Widget::Widget(QWidget *parent)
 	: QWidget(parent)
 {
-	LogicalGui::instance()->registerWatcher("getFileName", new GetFileNameWatcher);
-
 	QPushButton *button = new QPushButton("Push Me!");
 	QPushButton *buttonThreaded = new QPushButton("Push Me! (Threaded)");
 	QHBoxLayout *layout = new QHBoxLayout;
@@ -38,12 +25,14 @@ Widget::Widget(QWidget *parent)
 void Widget::buttonPushed()
 {
 	FileCopyTask task;
+	task.bind("getFileName", this, SLOT(getFileName(QString,QDir)));
 	task.run();
 }
 
 void Widget::buttonPushedThread()
 {
 	FileCopyTask *task = new FileCopyTask;
+	task->bind("getFileName", this, SLOT(getFileName(QString,QDir)));
 	QThread *thread = new QThread(this);
 	task->moveToThread(thread);
 	connect(thread, &QThread::started, task, &FileCopyTask::run);
@@ -51,4 +40,10 @@ void Widget::buttonPushedThread()
 	connect(thread, &QThread::finished, thread, &QThread::deleteLater);
 	connect(thread, &QThread::finished, task, &QThread::deleteLater);
 	thread->start();
+}
+
+QString Widget::getFileName(const QString &title, const QDir &dir)
+{
+	qDebug() << title << dir.absolutePath();
+	return QFileDialog::getOpenFileName(this, title, dir.absolutePath());
 }

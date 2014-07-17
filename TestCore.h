@@ -1,9 +1,10 @@
 #pragma once
 
-#include <QObject>
+#include "LogicalGui.h"
+
 #include <QDir>
 
-class FileCopyTask : public QObject
+class FileCopyTask : public Task
 {
 	Q_OBJECT
 public:

@@ -1,88 +1,98 @@
 #pragma once
 
 #include <QObject>
-#include <QVariant>
-#include <QReadWriteLock>
-#include <functional>
-#include <memory>
+#include <QMetaMethod>
+#include <QThread>
+#include <QCoreApplication>
+#include <QDebug>
 
-class AbstractWatcher
+class Bindable
 {
+protected:
+	struct Binding
+	{
+		QObject *receiver;
+		QByteArray method;
+		Bindable *source = 0;
+	};
+
+	QMap<QString, Binding> m_bindings;
+
 public:
-	virtual ~AbstractWatcher()
+	virtual ~Bindable()
 	{
 	}
 
-	virtual QVariant call(const QVariantList &arguments) = 0;
-};
-class LambdaWatcher : public AbstractWatcher
-{
-	std::function<QVariant(QVariantList)> m_lambda;
-public:
-	LambdaWatcher(std::function<QVariant(QVariantList)> lambda) : m_lambda(lambda)
+	void bind(Bindable *bindable)
 	{
+		for (auto it = bindable->m_bindings.constBegin(); it != bindable->m_bindings.constEnd();
+			 ++it)
+		{
+			Binding binding;
+			binding.receiver = it.value().receiver;
+			binding.method = it.value().method;
+			binding.source = bindable;
+			m_bindings.insert(it.key(), binding);
+		}
 	}
-	QVariant call(const QVariantList &arguments) override
+	void unbind(Bindable *bindable)
 	{
-		return m_lambda(arguments);
+		for (const auto key : bindable->m_bindings.keys())
+		{
+			if (m_bindings.contains(key) && m_bindings[key].source == bindable)
+			{
+				m_bindings.remove(key);
+			}
+		}
+	}
+
+	void bind(const QString &id, QObject *receiver, const char *method)
+	{
+		Binding binding;
+		binding.receiver = receiver;
+		binding.method =
+			QByteArray(method + 1); // we increase it by one to remove the leading number
+		m_bindings.insert(id, binding);
+	}
+	void unbind(const QString &id)
+	{
+		m_bindings.remove(id);
 	}
 };
 
-namespace Internal
-{
-class LogicalGuiResult : public QObject
+class Task : public QObject, public Bindable
 {
 	Q_OBJECT
 public:
-	using QObject::QObject;
+	Task(Task *parent = 0) : QObject(parent)
+	{
+		// inherit the bindings from parent
+		bind(parent);
+	}
+	Task(QObject *parent = 0) : QObject(parent)
+	{
+	}
+	virtual ~Task()
+	{
+	}
 
-	QVariant result;
-	bool doStartEventLoop = true;
-
-signals:
-	void done();
+protected:
+	template <typename Ret, typename... Params> Ret wait(const QString &id, Params... params)
+	{
+		Q_ASSERT(m_bindings.contains(id));
+		qMetaTypeId<Ret>();
+		QVariantList({qMetaTypeId<Params>()...});
+		const auto binding = m_bindings[id];
+		Ret ret;
+		const auto mo = binding.receiver->metaObject();
+		QMetaMethod method = mo->method(mo->indexOfMethod(binding.method));
+		const Qt::ConnectionType type = QThread::currentThread() == qApp->thread()
+											? Qt::DirectConnection
+											: Qt::BlockingQueuedConnection;
+		const auto retArg =
+			QReturnArgument<Ret>(QMetaType::typeName(qMetaTypeId<Ret>()),
+								 ret); // because Q_RETURN_ARG doesn't work with templates...
+		method.invoke(binding.receiver, type, retArg, Q_ARG(Params, params)...);
+		return ret;
+	}
 };
-
-QVariant wait(const QString &id, const QVariantList &arguments);
-
-template<typename... Args>
-QList<QVariant> parameterPackToList(const Args&... args)
-{
-	return QList<QVariant>({QVariant::fromValue(args)...});
-}
-}
-
-class LogicalGui : public QObject
-{
-	Q_OBJECT
-	LogicalGui();
-public:
-	static LogicalGui *instance();
-
-	void registerWatcher(const QString &id, AbstractWatcher *watcher);
-	void unregisterWatcher(const QString &id);
-
-	Internal::LogicalGuiResult *call(const QString &id, const QVariantList &args, const bool direct);
-
-signals:
-	void callSignal(const QVariantList &args, AbstractWatcher *watcher, Internal::LogicalGuiResult *result);
-
-private slots:
-	void callInternal(const QVariantList &args, AbstractWatcher *watcher, Internal::LogicalGuiResult *result);
-
-private:
-	QReadWriteLock m_lock;
-	QHash<QString, AbstractWatcher *> m_watchers;
-};
-
-template<typename Ret, typename... Params>
-Ret wait(const QString &id, Params... params)
-{
-	const QVariant res = Internal::wait(id, Internal::parameterPackToList(params...));
-	return res.value<Ret>();
-}
-template<typename Ret>
-Ret wait(const QString &id, const QVariantList &arguments)
-{
-	return Internal::wait(id, arguments).value<Ret>();
-}

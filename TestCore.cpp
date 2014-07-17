@@ -6,13 +6,14 @@
 #include "LogicalGui.h"
 
 FileCopyTask::FileCopyTask(QObject *parent)
-	: QObject(parent)
+	: Task(parent)
 {
 }
 
 void FileCopyTask::run()
 {
-	const QString filename = wait<QString>("getFileName", 0, tr("Choose file"), QDir::current());
+	const QString filename = wait<QString>("getFileName", tr("Choose file"), QDir::current());
 	QThread::sleep(10); // work hard
+	qDebug("Result: %s", qPrintable(filename));
 	emit done();
 }

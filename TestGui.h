@@ -2,6 +2,8 @@
 
 #include <QWidget>
 
+class QDir;
+
 class Widget : public QWidget
 {
 	Q_OBJECT
@@ -11,4 +13,7 @@ public:
 public slots:
 	void buttonPushed();
 	void buttonPushedThread();
+
+private slots:
+	QString getFileName(const QString &title, const QDir &dir);
 };
