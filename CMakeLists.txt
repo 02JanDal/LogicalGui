@@ -8,7 +8,7 @@ set(CMAKE_CXX_FLAGS "-std=c++11")
 
 find_package(Qt5 REQUIRED COMPONENTS Core Widgets)
 
-add_library(LogicalGui SHARED LogicalGui.h LogicalGui.cpp)
+add_library(LogicalGui SHARED LogicalGui.h)
 qt5_use_modules(LogicalGui Core)
 
 add_library(TestCoreLib STATIC TestCore.h TestCore.cpp)

@@ -1,45 +1,57 @@
+/* Copyright 2014 Jan Dalheimer
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 #pragma once
 
 #include <QObject>
 #include <QMetaMethod>
 #include <QThread>
 #include <QCoreApplication>
-#include <QDebug>
 
-class Bindable
+class Bindable : public QObject
 {
-protected:
-	struct Binding
-	{
-		QObject *receiver;
-		QByteArray method;
-		Bindable *source = 0;
-	};
-
-	QMap<QString, Binding> m_bindings;
-
+	Q_OBJECT
 public:
+	Bindable(Bindable *parent = 0) : QObject(parent)
+	{
+		// inherit the bindings from parent
+		bind(parent);
+	}
+	Bindable(QObject *parent = 0) : QObject(parent)
+	{
+	}
 	virtual ~Bindable()
 	{
 	}
 
-	void bind(Bindable *bindable)
+	void bind(Bindable *task)
 	{
-		for (auto it = bindable->m_bindings.constBegin(); it != bindable->m_bindings.constEnd();
-			 ++it)
+		for (auto it = task->m_bindings.constBegin(); it != task->m_bindings.constEnd(); ++it)
 		{
-			Binding binding;
-			binding.receiver = it.value().receiver;
-			binding.method = it.value().method;
-			binding.source = bindable;
-			m_bindings.insert(it.key(), binding);
+			if (m_bindings.contains(it.key()))
+			{
+				continue;
+			}
+			m_bindings.insert(it.key(), Binding(it.value().receiver, it.value().method, task));
 		}
 	}
-	void unbind(Bindable *bindable)
+	void unbind(Bindable *task)
 	{
-		for (const auto key : bindable->m_bindings.keys())
+		for (const auto key : task->m_bindings.keys())
 		{
-			if (m_bindings.contains(key) && m_bindings[key].source == bindable)
+			if (m_bindings.contains(key) && m_bindings[key].source == task)
 			{
 				m_bindings.remove(key);
 			}
@@ -58,37 +70,38 @@ public:
 	{
 		m_bindings.remove(id);
 	}
-};
 
-class Task : public QObject, public Bindable
-{
-	Q_OBJECT
-public:
-	Task(Task *parent = 0) : QObject(parent)
+private:
+	struct Binding
 	{
-		// inherit the bindings from parent
-		bind(parent);
-	}
-	Task(QObject *parent = 0) : QObject(parent)
-	{
-	}
-	virtual ~Task()
-	{
-	}
+		Binding(QObject *receiver, const QByteArray &method, Bindable *source = 0)
+			: receiver(receiver), method(method), source(source)
+		{
+		}
+		Binding()
+		{
+		}
+		QObject *receiver;
+		QByteArray method;
+		Bindable *source = 0;
+	};
+	QMap<QString, Binding> m_bindings;
 
 protected:
 	template <typename Ret, typename... Params> Ret wait(const QString &id, Params... params)
 	{
 		Q_ASSERT(m_bindings.contains(id));
-		qMetaTypeId<Ret>();
 		QVariantList({qMetaTypeId<Params>()...});
 		const auto binding = m_bindings[id];
-		Ret ret;
 		const auto mo = binding.receiver->metaObject();
 		QMetaMethod method = mo->method(mo->indexOfMethod(binding.method));
+		Q_ASSERT(method.isValid());
+		Q_ASSERT(method.parameterCount() == sizeof...(params));
+		Q_ASSERT(method.returnType() == qMetaTypeId<Ret>());
 		const Qt::ConnectionType type = QThread::currentThread() == qApp->thread()
 											? Qt::DirectConnection
 											: Qt::BlockingQueuedConnection;
+		Ret ret;
 		const auto retArg =
 			QReturnArgument<Ret>(QMetaType::typeName(qMetaTypeId<Ret>()),
 								 ret); // because Q_RETURN_ARG doesn't work with templates...
