@@ -19,52 +19,32 @@
 #include <QMetaMethod>
 #include <QThread>
 #include <QCoreApplication>
+#include <memory>
 
-class Bindable : public QObject
+class Bindable
 {
-	Q_OBJECT
 public:
-	Bindable(Bindable *parent = 0) : QObject(parent)
-	{
-		// inherit the bindings from parent
-		bind(parent);
-	}
-	Bindable(QObject *parent = 0) : QObject(parent)
+	Bindable(Bindable *parent = 0)
+		: m_parent(parent)
 	{
 	}
 	virtual ~Bindable()
 	{
 	}
 
-	void bind(Bindable *task)
+	void setBindableParent(Bindable *parent)
 	{
-		for (auto it = task->m_bindings.constBegin(); it != task->m_bindings.constEnd(); ++it)
-		{
-			if (m_bindings.contains(it.key()))
-			{
-				continue;
-			}
-			m_bindings.insert(it.key(), Binding(it.value().receiver, it.value().method, task));
-		}
-	}
-	void unbind(Bindable *task)
-	{
-		for (const auto key : task->m_bindings.keys())
-		{
-			if (m_bindings.contains(key) && m_bindings[key].source == task)
-			{
-				m_bindings.remove(key);
-			}
-		}
+		m_parent = parent;
 	}
 
-	void bind(const QString &id, QObject *receiver, const char *method)
+	void bind(const QString &id, QObject *receiver, const char *methodSignature)
 	{
-		Binding binding;
-		binding.receiver = receiver;
-		binding.method =
-			QByteArray(method + 1); // we increase it by one to remove the leading number
-		m_bindings.insert(id, binding);
+		auto mo = receiver->metaObject();
+		Q_ASSERT_X(mo, "Bindable::bind", "Invalid metaobject. Did you forget the QObject macro?");
+		const QMetaMethod method = mo->method(mo->indexOfMethod(
+			QMetaObject::normalizedSignature(methodSignature + 1).constData()));
+		Q_ASSERT_X(method.isValid(), "Bindable::bind", "Invalid method signature");
+		m_bindings.insert(id, Binding(receiver, method));
 	}
 	void unbind(const QString &id)
 	{
@@ -74,7 +54,7 @@ public:
 private:
 	struct Binding
 	{
-		Binding(QObject *receiver, const QByteArray &method, Bindable *source = 0)
+		Binding(QObject *receiver, const QMetaMethod &method, Bindable *source = 0)
 			: receiver(receiver), method(method), source(source)
 		{
 		}
@@ -82,22 +62,34 @@ private:
 		{
 		}
 		QObject *receiver;
-		QByteArray method;
+		QMetaMethod method;
 		Bindable *source = 0;
 	};
 	QMap<QString, Binding> m_bindings;
 
+	Bindable *m_parent;
+
 protected:
 	template <typename Ret, typename... Params> Ret wait(const QString &id, Params... params)
 	{
+		if (!m_bindings.contains(id) && m_parent)
+		{
+			return m_parent->wait<Ret, Params...>(id, params...);
+		}
 		Q_ASSERT(m_bindings.contains(id));
 		QVariantList({qMetaTypeId<Params>()...});
 		const auto binding = m_bindings[id];
-		const auto mo = binding.receiver->metaObject();
-		QMetaMethod method = mo->method(mo->indexOfMethod(binding.method));
-		Q_ASSERT(method.isValid());
-		Q_ASSERT(method.parameterCount() == sizeof...(params));
-		Q_ASSERT(method.returnType() == qMetaTypeId<Ret>());
+		const QMetaMethod method = binding.method;
+		Q_ASSERT_X(method.parameterCount() == sizeof...(params), "Bindable::wait",
+				   qPrintable(QString("Incompatible argument count (expected %1, got %2)")
+								  .arg(method.parameterCount(), sizeof...(params))));
+		Q_ASSERT_X(qMetaTypeId<Ret>() != QMetaType::UnknownType, "Bindable::wait",
+				   "Requested return type is not registered, please use the Q_DECLARE_METATYPE "
+				   "macro to make it known to Qt's meta-object system");
+		Q_ASSERT_X(method.returnType() == qMetaTypeId<Ret>() || QMetaType::hasRegisteredConverterFunction(method.returnType(), qMetaTypeId<Ret>()), "Bindable::wait",
+				   qPrintable(QString("Requested return type (%1) is incompatible method return type (%2)")
+								  .arg(QMetaType::typeName(qMetaTypeId<Ret>()),
+									   QMetaType::typeName(method.returnType()))));
 		const Qt::ConnectionType type = QThread::currentThread() == qApp->thread()
 											? Qt::DirectConnection
 											: Qt::BlockingQueuedConnection;
