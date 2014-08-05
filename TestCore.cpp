@@ -21,7 +21,7 @@
 #include "LogicalGui.h"
 
 FileCopyTask::FileCopyTask(QObject *parent)
-	: Bindable(parent)
+	: QObject(parent), Bindable()
 {
 }
 

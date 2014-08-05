@@ -40,14 +40,14 @@ Widget::Widget(QWidget *parent)
 void Widget::buttonPushed()
 {
 	FileCopyTask task;
-	task.bind("getFileName", this, SLOT(getFileName(QString,QDir)));
+	task.bind("getFileName", this, &Widget::getFileName);
 	task.run();
 }
 
 void Widget::buttonPushedThread()
 {
 	FileCopyTask *task = new FileCopyTask;
-	task->bind("getFileName", this, SLOT(getFileName(QString,QDir)));
+	task->bind("getFileName", this, &Widget::getFileName);
 	QThread *thread = new QThread(this);
 	task->moveToThread(thread);
 	connect(thread, &QThread::started, task, &FileCopyTask::run);

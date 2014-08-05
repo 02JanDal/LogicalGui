@@ -19,7 +19,7 @@
 
 #include <QDir>
 
-class FileCopyTask : public Bindable
+class FileCopyTask : public QObject, public Bindable
 {
 	Q_OBJECT
 public:
