@@ -1,7 +1,7 @@
 #include <QTest>
 #include <QThread>
 
-#include "LogicalGui.h"
+#include <LogicalGui.h>
 
 class TestTarget : public QObject
 {

@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-#include "TestGui.h"
+#include "Gui.h"
 
 #include <QPushButton>
 #include <QHBoxLayout>
@@ -21,8 +21,9 @@
 #include <QDebug>
 #include <QThread>
 
-#include "TestCore.h"
-#include "LogicalGui.h"
+#include <LogicalGui.h>
+
+#include "Core.h"
 
 Widget::Widget(QWidget *parent)
 	: QWidget(parent)

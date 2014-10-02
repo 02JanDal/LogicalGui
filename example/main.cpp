@@ -13,22 +13,20 @@
  * limitations under the License.
  */
 
-#include "TestCore.h"
+#include <QApplication>
 
-#include <QThread>
 #include <QDir>
 
-#include "LogicalGui.h"
+#include "Gui.h"
 
-FileCopyTask::FileCopyTask(QObject *parent)
-	: QObject(parent), Bindable()
+int main(int argc, char **argv)
 {
-}
+	QApplication app(argc, argv);
 
-void FileCopyTask::run()
-{
-	const QString filename = wait<QString>("getFileName", tr("Choose file"), QDir::current());
-	QThread::sleep(10); // work hard
-	qDebug("Result: %s", qPrintable(filename));
-	emit done();
+	qRegisterMetaType<QDir>("QDir");
+
+	Widget widget;
+	widget.show();
+
+	return app.exec();
 }

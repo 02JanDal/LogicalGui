@@ -13,21 +13,23 @@
  * limitations under the License.
  */
 
-#include <QApplication>
+#pragma once
+
+#include <LogicalGui.h>
 
 #include <QDir>
 
-#include "TestGui.h"
-#include "LogicalGui.h"
-
-int main(int argc, char **argv)
+class FileCopyTask : public QObject, public Bindable
 {
-	QApplication app(argc, argv);
+	Q_OBJECT
+public:
+	FileCopyTask(QObject *parent = 0);
 
-	qRegisterMetaType<QDir>("QDir");
+public slots:
+	void run();
 
-	Widget widget;
-	widget.show();
+signals:
+	void done();
+};
 
-	return app.exec();
-}
+Q_DECLARE_METATYPE(QDir)

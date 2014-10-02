@@ -13,23 +13,22 @@
  * limitations under the License.
  */
 
-#pragma once
+#include "Core.h"
 
-#include "LogicalGui.h"
-
+#include <QThread>
 #include <QDir>
 
-class FileCopyTask : public QObject, public Bindable
+#include <LogicalGui.h>
+
+FileCopyTask::FileCopyTask(QObject *parent)
+	: QObject(parent), Bindable()
 {
-	Q_OBJECT
-public:
-	FileCopyTask(QObject *parent = 0);
+}
 
-public slots:
-	void run();
-
-signals:
-	void done();
-};
-
-Q_DECLARE_METATYPE(QDir)
+void FileCopyTask::run()
+{
+	const QString filename = wait<QString>("getFileName", tr("Choose file"), QDir::current());
+	QThread::sleep(10); // work hard
+	qDebug("Result: %s", qPrintable(filename));
+	emit done();
+}
