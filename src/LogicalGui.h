@@ -173,7 +173,7 @@ public:
 
 	/**
 	 * @brief Bind an old-style slot (using SLOT(...) syntax) to a callback ID
-	 * @param id              The callback ID, as will be given to Bindable::wait or Bindable::request
+	 * @param id              The callback ID, as will be given to @ref wait or @ref request
 	 * @param receiver        The QObject instance on which the callback will be called
 	 * @param methodSignature The signature of the callback, as given by SLOT(...)
 	 */
@@ -187,12 +187,16 @@ public:
 		Q_ASSERT_X(method.isValid(), "Bindable::bind", "Invalid method signature");
 		m_bindings.insert(id, Binding(receiver, method));
 	}
+
+#ifdef DOXYGEN
 	/**
 	 * @brief Bind a member function to a callback ID
-	 * @param id       The callback ID, as will be given to Bindable::wait or Bindable::request
+	 * @param id       The callback ID, as will be given to @ref wait or @ref request
 	 * @param receiver The QObject instance on which the callback will be called
 	 * @param slot     The member function that will be called
 	 */
+	void bind(const QString &id, const QObject *receiver, Func slot);
+#else
 	template <typename Func>
 	void bind(const QString &id,
 			  const typename QtPrivate::FunctionPointer<Func>::Object *receiver, Func slot)
@@ -203,11 +207,16 @@ public:
 			Binding(receiver, new QtPrivate::QSlotObject<Func, typename SlotType::Arguments,
 														 typename SlotType::ReturnType>(slot)));
 	}
+#endif
+
+#ifdef DOXYGEN
 	/**
 	 * @brief Bind a lambda, static member, functor or similar to a callback ID
-	 * @param id   The callback ID, as will be given to Bindable::wait and Bindable::request
+	 * @param id   The callback ID, as will be given to @ref wait and @ref request
 	 * @param slot The lambda, static member, functor or similar that will be called
 	 */
+	void bind(const QString &id, Func slot);
+#else
 	template <typename Func> void bind(const QString &id, Func slot)
 	{
 		typedef QtPrivate::FunctionPointer<Func> SlotType;
@@ -216,6 +225,7 @@ public:
 			Binding(nullptr, new QtPrivate::QSlotObject<Func, typename SlotType::Arguments,
 														typename SlotType::ReturnType>(slot)));
 	}
+#endif
 
 	/**
 	 * @brief Remove the binding with the given ID
@@ -366,26 +376,34 @@ private:
 	};
 
 protected:
+#ifdef DOXYGEN
 	/**
 	 * @brief Calls a callback by it's ID, taking threads etc. into account
-	 * @param id     The callback ID to call, as previously bound using @ref bind
-	 * @param params The parameters to pass to the callback
+	 * @param id  The callback ID to call, as previously bound using @ref bind
+	 * @param ... The parameters to pass to the callback
 	 * @returns The return value of the callback
 	 * @see request
 	 */
+	template <typename Ret>
+	Ret wait(const QString &id, ...);
+#else
 	template <typename Ret, typename... Params>
 	Ret wait(const QString &id, Params... params)
 	{
 		return wait_t<Ret, Params...>(this)(id, params...);
 	}
+#endif
 
+#ifdef DOXYGEN
 	/**
 	 * @brief Creates a QFuture and returns immediately
 	 * @warning If the receiver is in the same thread as the caller, this will still be a blocking request
-	 * @param id     The callback ID to call, as previously bound using @ref bind
-	 * @param params The parameters to pass to the callback
+	 * @param id  The callback ID to call, as previously bound using @ref bind
+	 * @param ... The parameters to pass to the callback
 	 * @see wait
 	 */
+	template <typename Ret> QFuture<Ret> request(const QString &id, ...);
+#else
 	template <typename Ret, typename... Params> QFuture<Ret> request(const QString &id, Params... params)
 	{
 		if (!m_bindings.contains(id) && m_parent)
@@ -408,6 +426,7 @@ protected:
 			return (new RequestRunner<Ret, Params...>(id, this, params...))->start();
 		}
 	}
+#endif
 };
 
 // used frequently
