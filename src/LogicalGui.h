@@ -20,6 +20,9 @@
 #include <QThread>
 #include <QCoreApplication>
 #include <QSemaphore>
+#include <QFutureInterface>
+#include <QThreadPool>
+#include <tuple>
 
 #if QT_VERSION == QT_VERSION_CHECK(5, 2, 0)
 #include <5.2.0/QtCore/private/qobject_p.h>
@@ -35,13 +38,27 @@
 #error Please add support for this version of Qt
 #endif
 
+namespace Detail
+{
+template <std::size_t... a> struct Sequence
+{
+};
+template <std::size_t N, std::size_t... S> struct SequenceGenerator : SequenceGenerator<N - 1, N - 1, S...>
+{
+};
+template <std::size_t... S> struct SequenceGenerator<0, S...>
+{
+	typedef Sequence<S...> type;
+};
+}
+
 /**
  * @brief Inherit from Bindable in a logic class to be able to call GUI code from it
  *
  * @par Terminology
  *
  * * Callback - A QObject slot, member function, lambda, static member function, functor, global function etc.
- * * Callback ID - A string identifying a callback. Used by @ref wait and @ref waitVoid to look-up callbacks set with @ref bind
+ * * Callback ID - A string identifying a callback. Used by @ref wait and @ref request to look-up callbacks set with @ref bind
  * * Binding - A mapping between a callback ID and a callback. Set using @ref bind and unset using @ref unbind
  * * Bindable - A container of bindings, which can be called by inheriting from Bindable
  *
@@ -53,7 +70,7 @@
  * @code
  * class MyClass : public Bindable
  * @endcode
- * 2. Inside @a MyClass, use @ref wait and @ref waitVoid
+ * 2. Inside @a MyClass, use @ref wait and @ref request
  * @code
  * bool res = wait<bool>("Continue?", "Do you want to continue?");
  * @endcode
@@ -89,6 +106,48 @@ class Bindable
 {
 	friend class tst_LogicalGui;
 
+	template<typename Ret, typename... Params>
+	class RequestRunner : public QFutureInterface<Ret>, public QRunnable
+	{
+	public:
+		explicit RequestRunner(const QString id, Bindable *parent, Params... params)
+			: m_id(id), m_parent(parent), m_params(std::make_tuple(params...)) {}
+
+		QFuture<Ret> start()
+		{
+			this->setRunnable(this);
+			//this->setThreadPool(QThreadPool::globalInstance());
+			this->reportStarted();
+			QFuture<Ret> future = this->future();
+			QThreadPool::globalInstance()->start(this);
+			return future;
+		}
+
+		void run() override
+		{
+			if (this->isCanceled())
+			{
+				this->reportFinished();
+				return;
+			}
+
+			this->reportResult(call(typename Detail::SequenceGenerator<sizeof...(Params)>::type()));
+			this->reportFinished();
+		}
+
+	protected:
+		QString m_id;
+		Bindable *m_parent;
+		std::tuple<Params...> m_params;
+
+	private:
+		template <std::size_t... S>
+		Ret call(Detail::Sequence<S...>)
+		{
+			return m_parent->wait<Ret>(m_id, std::get<S>(m_params)...);
+		}
+	};
+
 public:
 	/**
 	 * @param parent This instance of Bindable will inherit bindings from it's parent
@@ -114,7 +173,7 @@ public:
 
 	/**
 	 * @brief Bind an old-style slot (using SLOT(...) syntax) to a callback ID
-	 * @param id              The callback ID, as will be given to Bindable::wait or Bindable::waitVoid
+	 * @param id              The callback ID, as will be given to Bindable::wait or Bindable::request
 	 * @param receiver        The QObject instance on which the callback will be called
 	 * @param methodSignature The signature of the callback, as given by SLOT(...)
 	 */
@@ -130,7 +189,7 @@ public:
 	}
 	/**
 	 * @brief Bind a member function to a callback ID
-	 * @param id       The callback ID, as will be given to Bindable::wait or Bindable::waitVoid
+	 * @param id       The callback ID, as will be given to Bindable::wait or Bindable::request
 	 * @param receiver The QObject instance on which the callback will be called
 	 * @param slot     The member function that will be called
 	 */
@@ -146,7 +205,7 @@ public:
 	}
 	/**
 	 * @brief Bind a lambda, static member, functor or similar to a callback ID
-	 * @param id   The callback ID, as will be given to Bindable::wait and Bindable::waitVoid
+	 * @param id   The callback ID, as will be given to Bindable::wait and Bindable::request
 	 * @param slot The lambda, static member, functor or similar that will be called
 	 */
 	template <typename Func> void bind(const QString &id, Func slot)
@@ -213,21 +272,11 @@ private:
 		}
 	}
 
-protected:
-	/**
-	 * @brief Calls a callback by it's ID, taking threads etc. into account
-	 * @param id     The callback ID to call, as previously bound using Bindable::bind
-	 * @param params The parameters to pass to the callback
-	 * @returns The return value of the callback
-	 * @see waitVoid
-	 */
-	template <typename Ret, typename... Params> Ret wait(const QString &id, Params... params)
+	template <typename Ret, typename... Params> Ret waitInternal(const QString &id, Params... params)
 	{
-		static_assert(!std::is_same<Ret, void>::value, "You need to use Bindable::waitVoid");
-
 		if (!m_bindings.contains(id) && m_parent)
 		{
-			return m_parent->wait<Ret, Params...>(id, params...);
+			return m_parent->waitInternal<Ret, Params...>(id, params...);
 		}
 		Q_ASSERT(m_bindings.contains(id));
 		const auto binding = m_bindings[id];
@@ -266,17 +315,11 @@ protected:
 		}
 		return ret;
 	}
-	/**
-	 * @brief Calls a callback by it's ID, taking threads etc. into account
-	 * @param id     The callback ID to call, as previously bound using Bindable::bind
-	 * @param params The parameters to pass to the callback
-	 * @see wait
-	 */
-	template <typename... Params> void waitVoid(const QString &id, Params... params)
+	template <typename... Params> void waitVoidInternal(const QString &id, Params... params)
 	{
 		if (!m_bindings.contains(id) && m_parent)
 		{
-			m_parent->waitVoid<Params...>(id, params...);
+			m_parent->waitVoidInternal<Params...>(id, params...);
 			return;
 		}
 		Q_ASSERT(m_bindings.contains(id));
@@ -294,6 +337,75 @@ protected:
 									  .arg(method.parameterCount(), sizeof...(params))));
 			method.invoke(const_cast<QObject *>(binding.receiver), connectionType(binding.receiver),
 						  Q_ARG(Params, params)...);
+		}
+	}
+
+	template <typename Ret, typename... Params>
+	struct wait_t
+	{
+		Bindable *bindable;
+		explicit wait_t(Bindable *bindable)
+			: bindable(bindable) {}
+
+		Ret operator()(const QString &id, Params... params)
+		{
+			return bindable->waitInternal<Ret>(id, params...);
+		}
+	};
+	template <typename... Params>
+	struct wait_t<void, Params...>
+	{
+		Bindable *bindable;
+		explicit wait_t(Bindable *bindable)
+			: bindable(bindable) {}
+
+		void operator()(const QString &id, Params... params)
+		{
+			bindable->waitVoidInternal(id, params...);
+		}
+	};
+
+protected:
+	/**
+	 * @brief Calls a callback by it's ID, taking threads etc. into account
+	 * @param id     The callback ID to call, as previously bound using @ref bind
+	 * @param params The parameters to pass to the callback
+	 * @returns The return value of the callback
+	 * @see request
+	 */
+	template <typename Ret, typename... Params>
+	Ret wait(const QString &id, Params... params)
+	{
+		return wait_t<Ret, Params...>(this)(id, params...);
+	}
+
+	/**
+	 * @brief Creates a QFuture and returns immediately
+	 * @warning If the receiver is in the same thread as the caller, this will still be a blocking request
+	 * @param id     The callback ID to call, as previously bound using @ref bind
+	 * @param params The parameters to pass to the callback
+	 * @see wait
+	 */
+	template <typename Ret, typename... Params> QFuture<Ret> request(const QString &id, Params... params)
+	{
+		if (!m_bindings.contains(id) && m_parent)
+		{
+			return m_parent->request<Ret, Params...>(id, params...);
+		}
+		Q_ASSERT(m_bindings.contains(id));
+		const auto binding = m_bindings[id];
+		if (connectionType(binding.receiver) == Qt::DirectConnection)
+		{
+			QFutureInterface<Ret> *iface = new QFutureInterface<Ret>();
+			QFuture<Ret> future = iface->future();
+			iface->reportStarted();
+			iface->reportResult(wait<Ret>(id, params...));
+			iface->reportFinished();
+			return future;
+		}
+		else
+		{
+			return (new RequestRunner<Ret, Params...>(id, this, params...))->start();
 		}
 	}
 };

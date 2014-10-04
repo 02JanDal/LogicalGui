@@ -1,5 +1,7 @@
 #include <QTest>
 #include <QThread>
+#include <QFuture>
+#include <QMutex>
 
 #include <LogicalGui.h>
 
@@ -12,23 +14,33 @@ public:
 	}
 
 	int numHits = 0;
+	QMutex mutex;
+
+	void reset()
+	{
+		numHits = 0;
+	}
 
 public slots:
 	void hit()
 	{
+		QMutexLocker locker(&mutex);
 		numHits++;
 	}
 	void hitMultiple(int num)
 	{
+		QMutexLocker locker(&mutex);
 		numHits += num;
 	}
 	int hitAndReturn()
 	{
+		QMutexLocker locker(&mutex);
 		numHits++;
 		return numHits;
 	}
 	int hitMultipleAndReturn(int num)
 	{
+		QMutexLocker locker(&mutex);
 		numHits += num;
 		return numHits;
 	}
@@ -55,9 +67,9 @@ private slots:
 		bindable->bind("HitMultipleAndReturn", target, SLOT(hitMultipleAndReturn(int)));
 
 		QCOMPARE(target->numHits, 0);
-		bindable->waitVoid("Hit");
+		bindable->wait<void>("Hit");
 		QCOMPARE(target->numHits, 1);
-		bindable->waitVoid("HitMultiple", 42);
+		bindable->wait<void>("HitMultiple", 42);
 		QCOMPARE(target->numHits, 43);
 		QCOMPARE(bindable->wait<int>("HitAndReturn"), target->numHits);
 		QCOMPARE(target->numHits, 44);
@@ -76,9 +88,9 @@ private slots:
 		bindable->bind("HitMultipleAndReturn", target, &TestTarget::hitMultipleAndReturn);
 
 		QCOMPARE(target->numHits, 0);
-		bindable->waitVoid("Hit");
+		bindable->wait<void>("Hit");
 		QCOMPARE(target->numHits, 1);
-		bindable->waitVoid("HitMultiple", 42);
+		bindable->wait<void>("HitMultiple", 42);
 		QCOMPARE(target->numHits, 43);
 		QCOMPARE(bindable->wait<int>("HitAndReturn"), target->numHits);
 		QCOMPARE(target->numHits, 44);
@@ -101,9 +113,9 @@ private slots:
 		target->moveToThread(thread);
 
 		QCOMPARE(target->numHits, 0);
-		bindable->waitVoid("Hit");
+		bindable->wait<void>("Hit");
 		QCOMPARE(target->numHits, 1);
-		bindable->waitVoid("HitMultiple", 42);
+		bindable->wait<void>("HitMultiple", 42);
 		QCOMPARE(target->numHits, 43);
 		QCOMPARE(bindable->wait<int>("HitAndReturn"), target->numHits);
 		QCOMPARE(target->numHits, 44);
@@ -154,12 +166,74 @@ private slots:
 		QCOMPARE(target->numHits, 0);
 		QCOMPARE(bindable4->wait<int>("HitMultipleAndReturn", 2), target->numHits);
 		QCOMPARE(target->numHits, 2);
-		bindable4->waitVoid("Hit");
+		bindable4->wait<void>("Hit");
 		QCOMPARE(target->numHits, 3);
-		bindable4->waitVoid("HitMultiple", 3);
+		bindable4->wait<void>("HitMultiple", 3);
 		QCOMPARE(target->numHits, 6);
 
 		delete bindable1, bindable2, bindable3, bindable4, target;
+	}
+
+	void asyncRequests()
+	{
+		Bindable *bindable = new Bindable;
+		TestTarget *target = new TestTarget;
+		bindable->bind("Hit", target, &TestTarget::hit);
+		bindable->bind("HitMultiple", target, &TestTarget::hitMultiple);
+		bindable->bind("HitAndReturn", target, &TestTarget::hitAndReturn);
+		bindable->bind("HitMultipleAndReturn", target, &TestTarget::hitMultipleAndReturn);
+
+		QCOMPARE(target->numHits, 0);
+		QCOMPARE(bindable->request<int>("HitAndReturn").result(), target->numHits);
+		QCOMPARE(target->numHits, 1);
+		QCOMPARE(bindable->request<int>("HitMultipleAndReturn", 42).result(), target->numHits);
+		QCOMPARE(target->numHits, 43);
+	}
+	void asyncRequestsDifferentThread()
+	{
+		Bindable *bindable = new Bindable;
+		TestTarget *target = new TestTarget;
+		bindable->bind("Hit", target, &TestTarget::hit);
+		bindable->bind("HitMultiple", target, &TestTarget::hitMultiple);
+		bindable->bind("HitAndReturn", target, &TestTarget::hitAndReturn);
+		bindable->bind("HitMultipleAndReturn", target, &TestTarget::hitMultipleAndReturn);
+
+		QThread *thread = new QThread;
+		thread->start();
+		target->moveToThread(thread);
+
+		QCOMPARE(target->numHits, 0);
+		QCOMPARE(bindable->request<int>("HitAndReturn").result(), target->numHits);
+		QCOMPARE(target->numHits, 1);
+		QCOMPARE(bindable->request<int>("HitMultipleAndReturn", 42).result(), target->numHits);
+		QCOMPARE(target->numHits, 43);
+	}
+	void asyncRequestsFuture()
+	{
+		Bindable *bindable = new Bindable;
+		TestTarget *target = new TestTarget;
+		bindable->bind("Hit", target, &TestTarget::hit);
+		bindable->bind("HitMultiple", target, &TestTarget::hitMultiple);
+		bindable->bind("HitAndReturn", target, &TestTarget::hitAndReturn);
+		bindable->bind("HitMultipleAndReturn", target, &TestTarget::hitMultipleAndReturn);
+
+		QThread *thread = new QThread;
+		thread->start();
+		target->moveToThread(thread);
+
+		QCOMPARE(target->numHits, 0);
+		target->mutex.lock();
+		QFuture<int> f1 = bindable->request<int>("HitAndReturn");
+		QVERIFY(f1.isStarted());
+		QVERIFY(f1.isRunning());
+		QVERIFY(!f1.isFinished());
+		QVERIFY(!f1.isCanceled());
+		target->mutex.unlock();
+		f1.waitForFinished();
+		QVERIFY(!f1.isRunning());
+		QVERIFY(!f1.isCanceled());
+		QVERIFY(f1.isFinished());
+		QCOMPARE(f1.result(), 1);
 	}
 };
 
