@@ -19,7 +19,7 @@ find_package(Qt5 REQUIRED COMPONENTS Core Widgets)
 
 ################# Main lib #################
 
-add_library(LogicalGui SHARED src/LogicalGui.h)
+add_library(LogicalGui SHARED src/LogicalGui.h src/LogicalGuiImpl.h src/QObjectPrivate.h src/LogicalGui.cpp)
 qt5_use_modules(LogicalGui Core)
 
 # for example and unit tests

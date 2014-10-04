@@ -17,49 +17,23 @@
 
 #include <QObject>
 #include <QMetaMethod>
-#include <QThread>
-#include <QCoreApplication>
-#include <QSemaphore>
 #include <QFutureInterface>
-#include <QThreadPool>
 #include <tuple>
 
-#if QT_VERSION == QT_VERSION_CHECK(5, 2, 0)
-#include <5.2.0/QtCore/private/qobject_p.h>
-#elif QT_VERSION == QT_VERSION_CHECK(5, 2, 1)
-#include <5.2.1/QtCore/private/qobject_p.h>
-#elif QT_VERSION == QT_VERSION_CHECK(5, 3, 0)
-#include <5.3.0/QtCore/private/qobject_p.h>
-#elif QT_VERSION == QT_VERSION_CHECK(5, 3, 1)
-#include <5.3.1/QtCore/private/qobject_p.h>
-#elif QT_VERSION == QT_VERSION_CHECK(5, 3, 2)
-#include <5.3.2/QtCore/private/qobject_p.h>
-#else
-#error Please add support for this version of Qt
-#endif
-
-namespace Detail
-{
-template <std::size_t... a> struct Sequence
-{
-};
-template <std::size_t N, std::size_t... S> struct SequenceGenerator : SequenceGenerator<N - 1, N - 1, S...>
-{
-};
-template <std::size_t... S> struct SequenceGenerator<0, S...>
-{
-	typedef Sequence<S...> type;
-};
-}
+#include "LogicalGuiImpl.h"
 
 /**
+ * @class Bindable
  * @brief Inherit from Bindable in a logic class to be able to call GUI code from it
  *
  * @par Terminology
  *
- * * Callback - A QObject slot, member function, lambda, static member function, functor, global function etc.
- * * Callback ID - A string identifying a callback. Used by @ref wait and @ref request to look-up callbacks set with @ref bind
- * * Binding - A mapping between a callback ID and a callback. Set using @ref bind and unset using @ref unbind
+ * * Callback - A QObject slot, member function, lambda, static member function, functor, global
+ *function etc.
+ * * Callback ID - A string identifying a callback. Used by @ref wait and @ref request to
+ *look-up callbacks set with @ref bind
+ * * Binding - A mapping between a callback ID and a callback. Set using @ref bind and unset
+ *using @ref unbind
  * * Bindable - A container of bindings, which can be called by inheriting from Bindable
  *
  * @par Usage
@@ -78,24 +52,28 @@ template <std::size_t... S> struct SequenceGenerator<0, S...>
  * @code
  * MyClass *obj = new MyClass;
  * obj->bind("Continue?", [](const QString &question) {
- *     // display the question to the user, return true or false depending on what the user answered
+ *     // display the question to the user, return true or false depending on what the user
+ *answered
  * });
  * @endcode
  * 4. You can also create a standalone @ref Bindable object, and use it as a binding container
  * @code
  * Bindable *container = new Bindable;
  * container->bind("Continue?", [](const QString &question) {
- *     // display the question to the user, return true or false depending on what the user answered
+ *     // display the question to the user, return true or false depending on what the user
+ *answered
  * });
  *
  * MyClass *obj = new MyClass;
  * obj->setBindableParent(container);
  * @endcode
- * You could also create a constructor for MyClass that takes a Bindable *, and then pass that to the Bindable::Bindable constructor
+ * You could also create a constructor for MyClass that takes a Bindable *, and then pass that
+ *to the Bindable::Bindable constructor
  *
  * @par Unit Testing
  *
- * LogicalGui is also useful for unit testing. Just bind callback IDs to placeholder callbacks, that for example return test data.
+ * LogicalGui is also useful for unit testing. Just bind callback IDs to placeholder callbacks,
+ *that for example return test data.
  * @code
  * MyClass *classUnderTest = new MyClass;
  * classUnderTest->bind("Continue?", [](QString) { return true; });
@@ -106,45 +84,23 @@ class Bindable
 {
 	friend class tst_LogicalGui;
 
-	template<typename Ret, typename... Params>
-	class RequestRunner : public QFutureInterface<Ret>, public QRunnable
+	template <typename Ret, typename... Params>
+	class RequestRunner : public Detail::BaseRequestRunner<Ret, Params...>
 	{
 	public:
-		explicit RequestRunner(const QString id, Bindable *parent, Params... params)
-			: m_id(id), m_parent(parent), m_params(std::make_tuple(params...)) {}
-
-		QFuture<Ret> start()
-		{
-			this->setRunnable(this);
-			//this->setThreadPool(QThreadPool::globalInstance());
-			this->reportStarted();
-			QFuture<Ret> future = this->future();
-			QThreadPool::globalInstance()->start(this);
-			return future;
-		}
-
-		void run() override
-		{
-			if (this->isCanceled())
-			{
-				this->reportFinished();
-				return;
-			}
-
-			this->reportResult(call(typename Detail::SequenceGenerator<sizeof...(Params)>::type()));
-			this->reportFinished();
-		}
-
-	protected:
-		QString m_id;
-		Bindable *m_parent;
-		std::tuple<Params...> m_params;
+		using Detail::BaseRequestRunner<Ret, Params...>::BaseRequestRunner;
 
 	private:
 		template <std::size_t... S>
-		Ret call(Detail::Sequence<S...>)
+		Ret call(const QString &id, Bindable *parent, std::tuple<Params...> params,
+				 Detail::Sequence<S...>)
 		{
-			return m_parent->wait<Ret>(m_id, std::get<S>(m_params)...);
+			return parent->wait<Ret>(id, std::get<S>(params)...);
+		}
+		Ret runFunctor(const QString &id, Bindable *parent, std::tuple<Params...> params)
+		{
+			return call(id, parent, params,
+						typename Detail::SequenceGenerator<sizeof...(Params)>::type());
 		}
 	};
 
@@ -153,23 +109,17 @@ public:
 	 * @param parent This instance of Bindable will inherit bindings from it's parent
 	 * @see setBindableParent
 	 */
-	Bindable(Bindable *parent = 0) : m_parent(parent)
-	{
-	}
-	virtual ~Bindable()
-	{
-	}
+	Bindable(Bindable *parent = 0);
+	virtual ~Bindable();
 
 	/**
 	 * @brief Lets this instance inherit bindings from parent
 	 * @param parent This instance of Bindable will inherit bindings from it's parent
 	 *
-	 * You can still add bindings to the parent after you've called @a setBindableParent, and they'll be available to this instance
+	 * You can still add bindings to the parent after you've called @a setBindableParent, and
+	 *they'll be available to this instance
 	 */
-	void setBindableParent(Bindable *parent)
-	{
-		m_parent = parent;
-	}
+	void setBindableParent(Bindable *parent);
 
 	/**
 	 * @brief Bind an old-style slot (using SLOT(...) syntax) to a callback ID
@@ -177,16 +127,7 @@ public:
 	 * @param receiver        The QObject instance on which the callback will be called
 	 * @param methodSignature The signature of the callback, as given by SLOT(...)
 	 */
-	void bind(const QString &id, const QObject *receiver, const char *methodSignature)
-	{
-		auto mo = receiver->metaObject();
-		Q_ASSERT_X(mo, "Bindable::bind",
-				   "Invalid metaobject. Did you forget the QObject macro?");
-		const QMetaMethod method = mo->method(mo->indexOfMethod(
-			QMetaObject::normalizedSignature(methodSignature + 1).constData()));
-		Q_ASSERT_X(method.isValid(), "Bindable::bind", "Invalid method signature");
-		m_bindings.insert(id, Binding(receiver, method));
-	}
+	void bind(const QString &id, const QObject *receiver, const char *methodSignature);
 
 #ifdef DOXYGEN
 	/**
@@ -203,8 +144,8 @@ public:
 	{
 		typedef QtPrivate::FunctionPointer<Func> SlotType;
 		m_bindings.insert(
-			id,
-			Binding(receiver, new QtPrivate::QSlotObject<Func, typename SlotType::Arguments,
+			id, Detail::Binding(
+					receiver, new QtPrivate::QSlotObject<Func, typename SlotType::Arguments,
 														 typename SlotType::ReturnType>(slot)));
 	}
 #endif
@@ -221,8 +162,8 @@ public:
 	{
 		typedef QtPrivate::FunctionPointer<Func> SlotType;
 		m_bindings.insert(
-			id,
-			Binding(nullptr, new QtPrivate::QSlotObject<Func, typename SlotType::Arguments,
+			id, Detail::Binding(
+					nullptr, new QtPrivate::QSlotObject<Func, typename SlotType::Arguments,
 														typename SlotType::ReturnType>(slot)));
 	}
 #endif
@@ -231,58 +172,21 @@ public:
 	 * @brief Remove the binding with the given ID
 	 * @param id The callback ID of the binding to remove
 	 */
-	void unbind(const QString &id)
-	{
-		m_bindings.remove(id);
-	}
+	void unbind(const QString &id);
 
 private:
-	struct Binding
-	{
-		Binding(const QObject *receiver, const QMetaMethod &method)
-			: receiver(receiver), method(method)
-		{
-		}
-		Binding(const QObject *receiver, QtPrivate::QSlotObjectBase *object)
-			: receiver(receiver), object(object)
-		{
-		}
-		Binding()
-		{
-		}
-		const QObject *receiver;
-		QMetaMethod method;
-		QtPrivate::QSlotObjectBase *object = nullptr;
-	};
-	QMap<QString, Binding> m_bindings;
+	QMap<QString, Detail::Binding> m_bindings;
 
 	Bindable *m_parent;
 
 private:
-	inline Qt::ConnectionType connectionType(const QObject *receiver)
-	{
-		return receiver == nullptr ? Qt::DirectConnection
-								   : (QThread::currentThread() == receiver->thread()
-										  ? Qt::DirectConnection
-										  : Qt::BlockingQueuedConnection);
-	}
-	void callSlotObject(Binding binding, void **args)
-	{
-		if (connectionType(binding.receiver) == Qt::BlockingQueuedConnection)
-		{
-			QSemaphore semaphore;
-			QMetaCallEvent *ev =
-				new QMetaCallEvent(binding.object, nullptr, -1, 0, 0, args, &semaphore);
-			QCoreApplication::postEvent(const_cast<QObject *>(binding.receiver), ev);
-			semaphore.acquire();
-		}
-		else
-		{
-			binding.object->call(const_cast<QObject *>(binding.receiver), args);
-		}
-	}
+	Qt::ConnectionType connectionType(const QObject *receiver);
+	void callSlotObject(Detail::Binding binding, void **args);
+	void checkParameterCount(const QMetaMethod &method, const int paramCount);
+	void checkReturnType(const QMetaMethod &method, const int typeId);
 
-	template <typename Ret, typename... Params> Ret waitInternal(const QString &id, Params... params)
+	template <typename Ret, typename... Params>
+	Ret waitInternal(const QString &id, Params... params)
 	{
 		if (!m_bindings.contains(id) && m_parent)
 		{
@@ -300,28 +204,13 @@ private:
 		else
 		{
 			const QMetaMethod method = binding.method;
-			Q_ASSERT_X(method.parameterCount() == sizeof...(params), "Bindable::wait",
-					   qPrintable(QString("Incompatible argument count (expected %1, got %2)")
-									  .arg(method.parameterCount(), sizeof...(params))));
-			Q_ASSERT_X(
-				qMetaTypeId<Ret>() != QMetaType::UnknownType, "Bindable::wait",
-				"Requested return type is not registered, please use the Q_DECLARE_METATYPE "
-				"macro to make it known to Qt's meta-object system");
-			Q_ASSERT_X(
-				method.returnType() == qMetaTypeId<Ret>() ||
-					QMetaType::hasRegisteredConverterFunction(method.returnType(),
-															  qMetaTypeId<Ret>()),
-				"Bindable::wait",
-				qPrintable(
-					QString(
-						"Requested return type (%1) is incompatible method return type (%2)")
-						.arg(QMetaType::typeName(qMetaTypeId<Ret>()),
-							 QMetaType::typeName(method.returnType()))));
+			checkParameterCount(method, sizeof...(Params));
+			checkReturnType(method, qMetaTypeId<Ret>());
 			const auto retArg = QReturnArgument<Ret>(
 				QMetaType::typeName(qMetaTypeId<Ret>()),
 				ret); // because Q_RETURN_ARG doesn't work with templates...
-			method.invoke(const_cast<QObject *>(binding.receiver), connectionType(binding.receiver), retArg,
-						  Q_ARG(Params, params)...);
+			method.invoke(const_cast<QObject *>(binding.receiver),
+						  connectionType(binding.receiver), retArg, Q_ARG(Params, params)...);
 		}
 		return ret;
 	}
@@ -342,32 +231,30 @@ private:
 		else
 		{
 			const QMetaMethod method = binding.method;
-			Q_ASSERT_X(method.parameterCount() == sizeof...(params), "Bindable::wait",
-					   qPrintable(QString("Incompatible argument count (expected %1, got %2)")
-									  .arg(method.parameterCount(), sizeof...(params))));
-			method.invoke(const_cast<QObject *>(binding.receiver), connectionType(binding.receiver),
-						  Q_ARG(Params, params)...);
+			checkParameterCount(method, sizeof...(Params));
+			method.invoke(const_cast<QObject *>(binding.receiver),
+						  connectionType(binding.receiver), Q_ARG(Params, params)...);
 		}
 	}
 
-	template <typename Ret, typename... Params>
-	struct wait_t
+	template <typename Ret, typename... Params> struct wait_t
 	{
 		Bindable *bindable;
-		explicit wait_t(Bindable *bindable)
-			: bindable(bindable) {}
+		explicit wait_t(Bindable *bindable) : bindable(bindable)
+		{
+		}
 
 		Ret operator()(const QString &id, Params... params)
 		{
 			return bindable->waitInternal<Ret>(id, params...);
 		}
 	};
-	template <typename... Params>
-	struct wait_t<void, Params...>
+	template <typename... Params> struct wait_t<void, Params...>
 	{
 		Bindable *bindable;
-		explicit wait_t(Bindable *bindable)
-			: bindable(bindable) {}
+		explicit wait_t(Bindable *bindable) : bindable(bindable)
+		{
+		}
 
 		void operator()(const QString &id, Params... params)
 		{
@@ -384,11 +271,9 @@ protected:
 	 * @returns The return value of the callback
 	 * @see request
 	 */
-	template <typename Ret>
-	Ret wait(const QString &id, ...);
+	template <typename Ret> Ret wait(const QString &id, ...);
 #else
-	template <typename Ret, typename... Params>
-	Ret wait(const QString &id, Params... params)
+	template <typename Ret, typename... Params> Ret wait(const QString &id, Params... params)
 	{
 		return wait_t<Ret, Params...>(this)(id, params...);
 	}
@@ -397,14 +282,16 @@ protected:
 #ifdef DOXYGEN
 	/**
 	 * @brief Creates a QFuture and returns immediately
-	 * @warning If the receiver is in the same thread as the caller, this will still be a blocking request
+	 * @warning If the receiver is in the same thread as the caller, this will still be a
+	 * blocking request
 	 * @param id  The callback ID to call, as previously bound using @ref bind
 	 * @param ... The parameters to pass to the callback
 	 * @see wait
 	 */
 	template <typename Ret> QFuture<Ret> request(const QString &id, ...);
 #else
-	template <typename Ret, typename... Params> QFuture<Ret> request(const QString &id, Params... params)
+	template <typename Ret, typename... Params>
+	QFuture<Ret> request(const QString &id, Params... params)
 	{
 		if (!m_bindings.contains(id) && m_parent)
 		{
