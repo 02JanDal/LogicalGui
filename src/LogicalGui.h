@@ -155,11 +155,9 @@ public:
 	 */
 	void bind(const QString &id, Func slot);
 #else
-	template <typename ReturnType, typename... Arguments> void bind(const QString &id, typename Detail::Identity<std::function<ReturnType(Arguments...)>>::type &&slot)
+	template <typename Func> void bind(const QString &id, Func &&slot)
 	{
-		m_bindings.insert(
-			id, Detail::Binding(
-					nullptr, new Detail::FunctorExecutor<ReturnType, Arguments...>(std::forward(slot))));
+		Detail::bind<Func>().go(m_bindings, id, slot);
 	}
 
 #endif

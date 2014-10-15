@@ -141,10 +141,10 @@ private slots:
 			numHits++;
 			return numHits;
 		});
-		bindable->bind("HitMultipleAndReturn", [&numHits](int num) {
+		bindable->bind("HitMultipleAndReturn", std::function<void(int)>([&numHits](int num) {
 			numHits += num;
 			return numHits;
-		});
+		}));
 
 		QCOMPARE(numHits, 0);
 		bindable->wait<void>("Hit");
