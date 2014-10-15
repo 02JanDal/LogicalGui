@@ -125,22 +125,31 @@ private slots:
 		delete bindable, thread, target;
 	}
 
-	// FIXME using lambdas currently doesn't work
-	/*
 	void usingLambda()
 	{
 		Bindable *bindable = new Bindable;
 		int numHits = 0;
-		bindable->bind("Hit", [&numHits](){numHits++;});
-		bindable->bind("HitMultiple", [&numHits](int num){numHits+=num;});
-		bindable->bind("HitAndReturn", [&numHits](){numHits++;return numHits;});
-		bindable->bind("HitMultipleAndReturn", [&numHits](int num){numHits+=num;return
-	numHits;});
+		std::function<void()> lambda = [&numHits]() {
+			numHits++;
+		};
+		bindable->bind("Hit", lambda);
+		bindable->bind("HitMultiple", [&numHits](int num)
+					   {
+			numHits += num;
+		});
+		bindable->bind("HitAndReturn", [&numHits]() {
+			numHits++;
+			return numHits;
+		});
+		bindable->bind("HitMultipleAndReturn", [&numHits](int num) {
+			numHits += num;
+			return numHits;
+		});
 
 		QCOMPARE(numHits, 0);
-		bindable->waitVoid("Hit");
+		bindable->wait<void>("Hit");
 		QCOMPARE(numHits, 1);
-		bindable->waitVoid("HitMultiple", 42);
+		bindable->wait<void>("HitMultiple", 42);
 		QCOMPARE(numHits, 43);
 		QCOMPARE(bindable->wait<int>("HitAndReturn"), numHits);
 		QCOMPARE(numHits, 44);
@@ -148,7 +157,7 @@ private slots:
 		QCOMPARE(numHits, 86);
 
 		delete bindable;
-	}*/
+	}
 
 	void parentBindings()
 	{

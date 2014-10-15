@@ -4,6 +4,8 @@
 #include <QSemaphore>
 #include <QThread>
 
+#include <mutex>
+
 #include "QObjectPrivate.h"
 
 Bindable::Bindable(Bindable *parent) : m_parent(parent)
@@ -42,19 +44,45 @@ Qt::ConnectionType Bindable::connectionType(const QObject *receiver)
 									  : Qt::BlockingQueuedConnection);
 }
 
-void Bindable::callSlotObject(Detail::Binding binding, void **args)
+void Bindable::callSlotObject(Detail::Binding binding, void *ret, void *args)
 {
+	std::exception_ptr exception;
+	std::mutex mutex;
+
+	auto lambda = [](Detail::ExecutionData data)
+	{
+		try
+		{
+			data.executor->execute(data.receiver, data.ret, data.args);
+		}
+		catch (...)
+		{
+			*data.exception = std::current_exception();
+		}
+		data.mutex.unlock();
+	};
+
+	Detail::ExecutionData data = Detail::ExecutionData{binding.executor, &exception, const_cast<QObject *>(binding.receiver), ret, args, mutex};
+
+	void *arguments[] = {
+		0,
+		&data
+	};
+
+	auto object = new QtPrivate::QFunctorSlotObject<decltype(lambda), 1,
+			QtPrivate::List<Detail::ExecutionData>,
+			void>(lambda);
+	QMetaCallEvent *ev =
+		new QMetaCallEvent(object, nullptr, -1, 0, 0, arguments);
 	if (connectionType(binding.receiver) == Qt::BlockingQueuedConnection)
 	{
-		QSemaphore semaphore;
-		QMetaCallEvent *ev =
-			new QMetaCallEvent(binding.object, nullptr, -1, 0, 0, args, &semaphore);
+		data.mutex.lock();
 		QCoreApplication::postEvent(const_cast<QObject *>(binding.receiver), ev);
-		semaphore.acquire();
+		data.mutex.lock();
 	}
 	else
 	{
-		binding.object->call(const_cast<QObject *>(binding.receiver), args);
+		ev->placeMetaCall(const_cast<QObject *>(binding.receiver));
 	}
 }
 

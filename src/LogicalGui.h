@@ -19,6 +19,7 @@
 #include <QMetaMethod>
 #include <QFutureInterface>
 #include <tuple>
+#include <functional>
 
 #include "LogicalGuiImpl.h"
 
@@ -138,15 +139,11 @@ public:
 	 */
 	void bind(const QString &id, const QObject *receiver, Func slot);
 #else
-	template <typename Func>
+	template <typename Object, typename ReturnType, typename... Arguments>
 	void bind(const QString &id,
-			  const typename QtPrivate::FunctionPointer<Func>::Object *receiver, Func slot)
+			  const Object *receiver, ReturnType(Object::*slot)(Arguments...))
 	{
-		typedef QtPrivate::FunctionPointer<Func> SlotType;
-		m_bindings.insert(
-			id, Detail::Binding(
-					receiver, new QtPrivate::QSlotObject<Func, typename SlotType::Arguments,
-														 typename SlotType::ReturnType>(slot)));
+		m_bindings.insert(id, Detail::Binding(receiver, new Detail::MemberExecutor<Object, ReturnType, Arguments...>(slot)));
 	}
 #endif
 
@@ -158,14 +155,13 @@ public:
 	 */
 	void bind(const QString &id, Func slot);
 #else
-	template <typename Func> void bind(const QString &id, Func slot)
+	template <typename ReturnType, typename... Arguments> void bind(const QString &id, typename Detail::Identity<std::function<ReturnType(Arguments...)>>::type &&slot)
 	{
-		typedef QtPrivate::FunctionPointer<Func> SlotType;
 		m_bindings.insert(
 			id, Detail::Binding(
-					nullptr, new QtPrivate::QSlotObject<Func, typename SlotType::Arguments,
-														typename SlotType::ReturnType>(slot)));
+					nullptr, new Detail::FunctorExecutor<ReturnType, Arguments...>(std::forward(slot))));
 	}
+
 #endif
 
 	/**
@@ -181,7 +177,7 @@ private:
 
 private:
 	Qt::ConnectionType connectionType(const QObject *receiver);
-	void callSlotObject(Detail::Binding binding, void **args);
+	void callSlotObject(Detail::Binding binding, void *ret, void *args);
 	void checkParameterCount(const QMetaMethod &method, const int paramCount);
 	void checkReturnType(const QMetaMethod &method, const int typeId);
 
@@ -195,11 +191,10 @@ private:
 		Q_ASSERT(m_bindings.contains(id));
 		const auto binding = m_bindings[id];
 		Ret ret;
-		if (binding.object)
+		if (binding.executor)
 		{
-			void *args[] = {&ret,
-							const_cast<void *>(reinterpret_cast<const void *>(&params))...};
-			callSlotObject(binding, args);
+			std::tuple<Params...> args = std::tuple<Params...>(params...);
+			callSlotObject(binding, &ret, &args);
 		}
 		else
 		{
@@ -223,10 +218,11 @@ private:
 		}
 		Q_ASSERT(m_bindings.contains(id));
 		const auto binding = m_bindings[id];
-		if (binding.object)
+		if (binding.executor)
 		{
-			void *args[] = {0, const_cast<void *>(reinterpret_cast<const void *>(&params))...};
-			callSlotObject(binding, args);
+			std::tuple<Params...> args = std::tuple<Params...>(params...);
+			int ret;
+			callSlotObject(binding, &ret, &args);
 		}
 		else
 		{
@@ -315,6 +311,7 @@ protected:
 	}
 #endif
 };
+
 
 // used frequently
 Q_DECLARE_METATYPE(bool *)
