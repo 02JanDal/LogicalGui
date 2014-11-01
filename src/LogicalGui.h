@@ -19,7 +19,6 @@
 #include <QMetaMethod>
 #include <QFutureInterface>
 #include <tuple>
-#include <functional>
 
 #include "LogicalGuiImpl.h"
 
@@ -140,10 +139,13 @@ public:
 	void bind(const QString &id, const QObject *receiver, Func slot);
 #else
 	template <typename Object, typename ReturnType, typename... Arguments>
-	void bind(const QString &id,
-			  const Object *receiver, ReturnType(Object::*slot)(Arguments...))
+	void bind(const QString &id, const Object *receiver,
+			  ReturnType (Object::*slot)(Arguments...))
 	{
-		m_bindings.insert(id, Detail::Binding(receiver, new Detail::MemberExecutor<Object, ReturnType, Arguments...>(slot)));
+		m_bindings.insert(
+			id,
+			Detail::Binding(
+				receiver, new Detail::MemberExecutor<Object, ReturnType, Arguments...>(slot)));
 	}
 #endif
 
@@ -157,7 +159,9 @@ public:
 #else
 	template <typename Func> void bind(const QString &id, Func &&slot)
 	{
-		Detail::bind<Func>().go(m_bindings, id, slot);
+		m_bindings.insert(id,
+						  Detail::Binding(nullptr,
+										  Detail::FunctorHelper<Func>().createExecutor(slot)));
 	}
 
 #endif
@@ -309,7 +313,6 @@ protected:
 	}
 #endif
 };
-
 
 // used frequently
 Q_DECLARE_METATYPE(bool *)

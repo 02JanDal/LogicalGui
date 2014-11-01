@@ -62,18 +62,16 @@ void Bindable::callSlotObject(Detail::Binding binding, void *ret, void *args)
 		data.mutex.unlock();
 	};
 
-	Detail::ExecutionData data = Detail::ExecutionData{binding.executor, &exception, const_cast<QObject *>(binding.receiver), ret, args, mutex};
+	Detail::ExecutionData data = Detail::ExecutionData{
+		binding.executor, &exception, const_cast<QObject *>(binding.receiver),
+		ret,			  args,		  mutex};
 
-	void *arguments[] = {
-		0,
-		&data
-	};
+	void *arguments[] = {0, &data};
 
-	auto object = new QtPrivate::QFunctorSlotObject<decltype(lambda), 1,
-			QtPrivate::List<Detail::ExecutionData>,
-			void>(lambda);
-	QMetaCallEvent *ev =
-		new QMetaCallEvent(object, nullptr, -1, 0, 0, arguments);
+	auto object =
+		new QtPrivate::QFunctorSlotObject<decltype(lambda), 1,
+										  QtPrivate::List<Detail::ExecutionData>, void>(lambda);
+	QMetaCallEvent *ev = new QMetaCallEvent(object, nullptr, -1, 0, 0, arguments);
 	if (connectionType(binding.receiver) == Qt::BlockingQueuedConnection)
 	{
 		data.mutex.lock();
