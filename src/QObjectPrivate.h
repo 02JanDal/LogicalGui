@@ -12,6 +12,8 @@
 #include <5.3.1/QtCore/private/qobject_p.h>
 #elif QT_VERSION == QT_VERSION_CHECK(5, 3, 2)
 #include <5.3.2/QtCore/private/qobject_p.h>
+#elif QT_VERSION == QT_VERSION_CHECK(5, 4, 0)
+#include <5.4.0/QtCore/private/qobject_p.h>
 #else
 #error Please add support for this version of Qt
 #endif
