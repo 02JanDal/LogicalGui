@@ -63,18 +63,18 @@ protected:
 struct Binding
 {
 	Binding(const QObject *receiver, const QMetaMethod &method)
-		: receiver(receiver), method(method)
+		: m_receiver(receiver), m_method(method)
 	{
 	}
 	Binding(const QObject *receiver, QtPrivate::QSlotObjectBase *object)
-		: receiver(receiver), object(object)
+		: m_receiver(receiver), m_object(object)
 	{
 	}
 	Binding()
 	{
 	}
-	const QObject *receiver;
-	QMetaMethod method;
-	QtPrivate::QSlotObjectBase *object = nullptr;
+	const QObject *m_receiver;
+	QMetaMethod m_method;
+	QtPrivate::QSlotObjectBase *m_object = nullptr;
 };
 }

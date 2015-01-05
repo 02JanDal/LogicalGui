@@ -195,7 +195,7 @@ private:
 		Q_ASSERT(m_bindings.contains(id));
 		const auto binding = m_bindings[id];
 		Ret ret;
-		if (binding.object)
+		if (binding.m_object)
 		{
 			void *args[] = {&ret,
 							const_cast<void *>(reinterpret_cast<const void *>(&params))...};
@@ -203,14 +203,14 @@ private:
 		}
 		else
 		{
-			const QMetaMethod method = binding.method;
+			const QMetaMethod method = binding.m_method;
 			checkParameterCount(method, sizeof...(Params));
 			checkReturnType(method, qMetaTypeId<Ret>());
 			const auto retArg = QReturnArgument<Ret>(
 				QMetaType::typeName(qMetaTypeId<Ret>()),
 				ret); // because Q_RETURN_ARG doesn't work with templates...
-			method.invoke(const_cast<QObject *>(binding.receiver),
-						  connectionType(binding.receiver), retArg, Q_ARG(Params, params)...);
+			method.invoke(const_cast<QObject *>(binding.m_receiver),
+						  connectionType(binding.m_receiver), retArg, Q_ARG(Params, params)...);
 		}
 		return ret;
 	}
@@ -223,42 +223,42 @@ private:
 		}
 		Q_ASSERT(m_bindings.contains(id));
 		const auto binding = m_bindings[id];
-		if (binding.object)
+		if (binding.m_object)
 		{
 			void *args[] = {0, const_cast<void *>(reinterpret_cast<const void *>(&params))...};
 			callSlotObject(binding, args);
 		}
 		else
 		{
-			const QMetaMethod method = binding.method;
+			const QMetaMethod method = binding.m_method;
 			checkParameterCount(method, sizeof...(Params));
-			method.invoke(const_cast<QObject *>(binding.receiver),
-						  connectionType(binding.receiver), Q_ARG(Params, params)...);
+			method.invoke(const_cast<QObject *>(binding.m_receiver),
+						  connectionType(binding.m_receiver), Q_ARG(Params, params)...);
 		}
 	}
 
 	template <typename Ret, typename... Params> struct wait_t
 	{
-		Bindable *bindable;
-		explicit wait_t(Bindable *bindable) : bindable(bindable)
+		Bindable *m_bindable;
+		explicit wait_t(Bindable *bindable) : m_bindable(bindable)
 		{
 		}
 
 		Ret operator()(const QString &id, Params... params)
 		{
-			return bindable->waitInternal<Ret>(id, params...);
+			return m_bindable->waitInternal<Ret>(id, params...);
 		}
 	};
 	template <typename... Params> struct wait_t<void, Params...>
 	{
-		Bindable *bindable;
-		explicit wait_t(Bindable *bindable) : bindable(bindable)
+		Bindable *m_bindable;
+		explicit wait_t(Bindable *bindable) : m_bindable(bindable)
 		{
 		}
 
 		void operator()(const QString &id, Params... params)
 		{
-			bindable->waitVoidInternal(id, params...);
+			m_bindable->waitVoidInternal(id, params...);
 		}
 	};
 
@@ -299,7 +299,7 @@ protected:
 		}
 		Q_ASSERT(m_bindings.contains(id));
 		const auto binding = m_bindings[id];
-		if (connectionType(binding.receiver) == Qt::DirectConnection)
+		if (connectionType(binding.m_receiver) == Qt::DirectConnection)
 		{
 			QFutureInterface<Ret> *iface = new QFutureInterface<Ret>();
 			QFuture<Ret> future = iface->future();

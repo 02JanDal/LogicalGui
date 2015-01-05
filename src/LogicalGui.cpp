@@ -44,17 +44,17 @@ Qt::ConnectionType Bindable::connectionType(const QObject *receiver)
 
 void Bindable::callSlotObject(Detail::Binding binding, void **args)
 {
-	if (connectionType(binding.receiver) == Qt::BlockingQueuedConnection)
+	if (connectionType(binding.m_receiver) == Qt::BlockingQueuedConnection)
 	{
 		QSemaphore semaphore;
 		QMetaCallEvent *ev =
-			new QMetaCallEvent(binding.object, nullptr, -1, 0, 0, args, &semaphore);
-		QCoreApplication::postEvent(const_cast<QObject *>(binding.receiver), ev);
+			new QMetaCallEvent(binding.m_object, nullptr, -1, 0, 0, args, &semaphore);
+		QCoreApplication::postEvent(const_cast<QObject *>(binding.m_receiver), ev);
 		semaphore.acquire();
 	}
 	else
 	{
-		binding.object->call(const_cast<QObject *>(binding.receiver), args);
+		binding.m_object->call(const_cast<QObject *>(binding.m_receiver), args);
 	}
 }
 
